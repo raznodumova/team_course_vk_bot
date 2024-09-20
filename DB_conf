@@ -1,0 +1,100 @@
+from sqlalchemy import Column, Text, Integer, Boolean, ForeignKey
+import sqlalchemy as sa
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base
+from contextlib import contextmanager
+import psycopg2
+
+#  тут мне все не нравится, хочу избавиться от этих глобальных переменных, засунуть их в класс, но для тестов пока так
+db_name = "vk_bots"   # нужно указать название бд для создания и подключения
+Base = declarative_base()
+main_engine = sa.create_engine(f"postgresql://postgres:admin@localhost:5432/{db_name}", echo=True)  #подключение к созданной БД
+
+DBSession = sessionmaker(binds={Base: main_engine, }, expire_on_commit=False)
+
+def create_db():  #создание новой БД
+    conn = psycopg2.connect(
+        dbname="postgres",
+        user="postgres",
+        password="admin",
+        host="localhost",
+        port="5432"
+        )
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(f"CREATE DATABASE {db_name};")
+        conn.commit()
+        cur.close()
+        conn.close()
+    except psycopg2.errors.DuplicateDatabase:
+        print("Таблица уже существует")
+
+# Создаем таблицы
+class User(Base):
+    __tablename__ = "user"
+
+    user_id = Column(Text, primary_key=True)
+    name = Column(Text, nullable=False)
+    city = Column(Text, nullable=False)
+    gender = Column(Text, nullable=False)
+    age = Column(Integer, nullable=False)
+
+    prompts = relationship("UserPrompt")
+    photo = relationship("UserPhoto")
+    option = relationship("UserOption")
+
+
+class UserPhoto(Base):
+    __tablename__ = "user_photo"
+
+    user_id = Column(Text, ForeignKey("user.user_id"), nullable=False)
+    photo_id = Column(Integer, primary_key=True, autoincrement=True)
+    photo_link = Column(Text, nullable=False)
+
+
+class UserPrompt(Base):
+    __tablename__ = "user_prompt"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    user_id = Column(Text, ForeignKey("user.user_id"), nullable=False)
+    city = Column(Text, nullable=False)
+    gender = Column(Text, nullable=False)
+    age = Column(Integer, nullable=False)
+
+
+class UserOption(Base):
+    __tablename__ = "user_option"
+
+    option_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Text, ForeignKey("user.user_id"), nullable=False)
+    user_for_option_id = Column(Text, nullable=False)
+    is_blocked = Column(Boolean, default=False, nullable=False)
+    is_liked = Column(Boolean, default=False, nullable=False)
+
+# я нашел этот кусок, когда пытался сделать автоматическое добавление в БД, но пока не понял как он работает)
+
+# @contextmanager
+# def session_scope():
+#     """Provides a transactional scope around a series of operations."""
+#     session = DBSession()
+#     try:
+#         yield session
+#         session.commit()
+#     except Exception as e:
+#         session.rollback()
+#         raise e
+#     finally:
+#         session.close()
+
+def create_tables(engine):
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+
+
+if __name__ == "__main__":
+    create_db()
+    create_tables(main_engine)
+    New_User = User(user_id=14, name="Vanya", city="moskow", gender="male", age=26)
+    session = DBSession()
+    session.add(New_User)
+    session.commit()
