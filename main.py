@@ -10,9 +10,9 @@ config.read('config.ini')  # отсюда токен достаем
 # так значится, тут у нас класс вк бота
 class VKBot:
     def __init__(self):
-        self.vk = vk_api.VkApi(token=config['VK']['token']) #сюда вставляем
-        self.vk_user = vk_api.VkApi(token=config['VK']['user_token']) # и сюда тоже
-        self.longpoll = VkLongPoll(self.vk) #слушаем сообщения
+        self.vk = vk_api.VkApi(token=config['VK']['token'])  # сюда вставляем
+        self.vk_user = vk_api.VkApi(token=config['VK']['user_token'])  # и сюда тоже
+        self.longpoll = VkLongPoll(self.vk)  # слушаем сообщения
 
     # метод для получения информации о пользователе
     def get_user_info(self, user_id):
