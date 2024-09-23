@@ -1,7 +1,8 @@
 import vk_api
 import configparser
-import time
+import datetime
 from vk_api.longpoll import VkLongPoll, VkEventType
+import requests
 
 config = configparser.ConfigParser()
 config.read('config.ini')  # отсюда токен достаем
@@ -14,77 +15,102 @@ class VKBot:
         self.vk_user = vk_api.VkApi(token=config['VK']['user_token']) # и сюда тоже
         self.longpoll = VkLongPoll(self.vk) #слушаем сообщения
 
-    # метод для получения информации о пользователе
-    def get_user_info(self, user_id):
-        return self.vk.method('users.get', {
+    # метод для получения города пользователя
+    def get_user_city(self, user_id):
+        city = self.vk.method('users.get', {
             'user_ids': user_id,
-            'fields': 'city, sex, bdate'
+            'fields': 'city'
         })[0]
+        return city['city']['title']
 
-    # метод для отправки сообщения
-    def send_message(self, user_id):
-        user_info = self.get_user_info(user_id)
-        name = user_info.get('first_name', 'Unknown')
-        surname = user_info.get('last_name', 'Unknown')
-        gender = 'female' if user_info.get('sex') == 1 else 'male' if user_info.get('sex') == 2 else 'unknown'
-        city = user_info.get('city', {}).get('title', 'unknown') if user_info.get('city') else 'unknown'
+    # метод для получения возраста пользователя (получаем дату рождения и считаем от нынешнего года)
+    def get_user_age(self, user_id):
+        age = self.vk.method('users.get', {
+            'user_ids': user_id,
+            'fields': 'bdate'
+        })[0]
+        if age['bdate'] is not None:
+            now_date = datetime.datetime.now()
+            bdate = datetime.datetime.strptime(age['bdate'], '%d.%m.%Y')
+            user_age = now_date.year - bdate.year
+            return user_age
+        else:
+            user_age = input('Укажите возраст: ')
+            return user_age
 
-        age_info = self.calculate_age(user_info.get('bdate'))
-        message = (f"Имя: {name} {surname}\n"
-                   f"Пол: {gender}\n"
-                   f"Город: {city}\n"
-                   f"Возраст: {age_info['age']} {age_info['message']}\n")
+    # метод для получения пола и замены на противоположный
+    def get_gender(self, user_id):
+        gender = self.vk.method('users.get', {
+            'user_ids': user_id,
+            'fields': 'sex'
+        })[0]
+        if gender['sex'] == 1:
+            return 2
+        else:
+            return 1
 
-        # Получаем три самых популярных фотографии
-        top_photos = self.get_top_photos(user_id)
-        photo_attachments = []
-        for photo in top_photos:
-            attachment = f"photo{photo['owner_id']}_{photo['id']}"
-            photo_attachments.append(attachment)
+    # метод для получения имени
+    def get_name_user(self, user_id):
+        name = self.vk.method('users.get', {
+            'user_ids': user_id,
+            'fields': 'first_name, last_name'
+        })[0]
+        full_name = name['first_name'] + ' ' + name['last_name']
+        return full_name
 
-        attachments = ','.join(photo_attachments) if photo_attachments else ''
-        self.vk.method('messages.send', {
-            'user_id': user_id,
-            'message': message,
-            'attachment': attachments,
-            'random_id': 0
-        })
+    # метод для поиска по параметрам пользователя
+    def find_user(self, user_id):
+        BASE_URL = 'https://api.vk.com/method/'
+        params = {
+            'access_token': config['VK']['token'],
+            'user_ids': user_id,
+            'fields': 'is_closed, first_name, last_name, id',
+            'sex': self.get_gender(user_id),
+            'city': self.get_user_city(user_id),
+            'age_from': self.get_user_age(user_id),
+            'age_to': self.get_user_age(user_id) + 2,
+            'status': 1 or 6,
+            'v': 5.199
+        }
 
-    # метод для вычисления возраста (тут мне не нравится), но я пока не придумала, как по-другому
-    @staticmethod
-    def calculate_age(bdate):
-        if not bdate:
-            return {'age': 'unknown', 'message': 'Дата рождения не указана.'}
+        response = requests.get(BASE_URL + 'users.search', params=params)
+        response_json = response.json()
+        user_data = response_json['response']['items']
 
-        bdate_parts = bdate.split('.')
-        if len(bdate_parts) == 3:
-            current_year = time.localtime().tm_year
-            return {'age': current_year - int(bdate_parts[2]), 'message': ''}
-        return {'age': 'не указан.', 'message': 'Год рождения не указан.'}
+        for i in user_data:
+            if i.get('is_closed') == False: # если пользователь не в ЧС
+                i_id = i.get('id')
+                i_name = i.get('first_name') + ' ' + i.get('last_name')
+                i_link = 'https://vk.com/id' + str(i_id)
+                yield i_id, i_name, i_link
+            else:
+                continue
 
-    def get_top_photos(self, user_id):
-        response = self.vk_user.method('photos.get', {
+    # метод для получения трех самых популярных фотографий
+    def get_photos(self, user_id):
+        # Получаем список всех фотографий пользователя
+        photos = self.vk.method('photos.get', {
             'owner_id': user_id,
-            'album_id': 'profile',
-            'extended': 1,
-            'count': 100  # Получаем максимум 100 фоток, хз, мб больше надо, мб меньше
+            'album_id': 'profile',  # Получаем фотографии из профиля
+            'count': 100,  # Максимально возможное количество (опять же 100)
+            'extended': 1,  # Чтобы получить дополнительную информацию о фото
+            'v': 5.199
         })
 
-        photos = []
-        for item in response['items']:
-            photo = {
-                'id': item['id'],
-                'owner_id': item['owner_id'],
-                'likes': item['likes']['count']
-            }
-            photos.append(photo)
-        photos.sort(key=lambda x: x['likes'], reverse=True)
-        return photos[:3]
+        # Проверяем, что фотографии получены
+        if 'items' not in photos or not photos['items']:
+            return []
 
+        # Сортируем фотографии по количеству лайков
+        sorted_photos = sorted(photos['items'], key=lambda x: x['likes']['count'], reverse=True)
 
-if __name__ == '__main__':
-    vk_bot = VKBot()
-    # начинаем слушать сообщения
-    for event in vk_bot.longpoll.listen():
-        if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-            vk_bot.send_message(event.user_id)
+        # Берем три самые популярные фотки
+        top_photos = sorted_photos[:3]
+
+        # Получаем фотки с наибольшими размерами
+        max_size_photos = []
+        for photo in top_photos:
+            max_size_photo = max(photo['sizes'], key=lambda size: size['width'] * size['height'])
+            max_size_photos.append(max_size_photo['url'])  # URL самого большого изображения
+
+        return max_size_photos
