@@ -14,8 +14,11 @@ def create_user(user):
     except IntegrityError:
         print("Такой пользователь уже существует")
 
-def update_user():
-    pass
+def update_user(user_id, **inf):
+    for key, value in inf.items():
+        s.query(User).filter(User.user_id.ilike(user_id)).update(inf)
+        print(f"строка {key} обновлена. новое значение {value}")
+        s.commit()
 
 def delete_user(user_id):
     try:
@@ -35,8 +38,11 @@ def add_prompt(prompt):
     except IntegrityError:
         print("Пользователь уже добавил запрос")
 
-def update_prompt():
-    pass
+def update_prompt(user_id, **inf):
+    for key, value in inf.items():
+        s.query(UserPrompt).filter(UserPrompt.user_id.ilike(user_id)).update(inf)
+        print(f"строка {key} обновлена. новое значение {value}")
+        s.commit()
 
 def like(user_id, liked_user_id):
     try:
@@ -69,9 +75,3 @@ def unban(user_id, user_for_unban):
 
 if __name__ == "__main__":
     pass
-
-    # минии тесты
-    # test = DB("vk_bots", "admin")
-    # New = User(user_id=14, name="Vanya", city="moskow", gender="male", age=26)
-    # create_user(New)
-    # delete_user(user_id="14")
